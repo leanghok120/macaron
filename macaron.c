@@ -18,12 +18,16 @@ Visual *vis;
 int depth;
 Colormap cm;
 
+void help(const char *msg) {
+  printf("usage: %s [options] [file]\nOPTIONS:\n-x\n\tset x position\n-y\n\tset y position\n-w\n\tset width of widget\n-h\n\tset height of widget\n", msg);
+  exit(1);
+}
+
 void parseargs(int argc, char **argv) {
   int option;
 
   if (argc < 2) {
-    printf("usage: %s [options] [file]\n", argv[0]);
-    exit(1);
+    help(argv[0]);
   }
 
   while ((option = getopt(argc, argv, "x:y:w:h:")) != -1) {
@@ -41,15 +45,13 @@ void parseargs(int argc, char **argv) {
         height = atoi(optarg);
         break;
       case '?':
-        printf("usage: %s [options] [file]\n", argv[0]);
-        exit(1);
+        help(argv[0]);
         break;
     }
   }
 
   if (optind >= argc) {
-    printf("usage: %s [options] [file]\n", argv[0]);
-    exit(1);
+    help(argv[0]);
   }
 }
 
