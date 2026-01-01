@@ -1,4 +1,4 @@
-# xsetwall
+# macaron
 
 a very tiny (120 LOC) X11 widgets utility
 
@@ -21,3 +21,7 @@ macaron -x 50 -y 50 -w 250 -h 250 /path/to/img
 
 1. clone the repo
 2. run `sudo make clean install`
+
+## tips
+
+it is recommended to add shadows and rounded corners to the widgets to improve the aesthetics (you can do this with picom)
