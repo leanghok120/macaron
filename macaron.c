@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
+#include <errno.h>
+#include <poll.h>
 
 int width = 250;
 int height = 250;
@@ -13,7 +16,13 @@ int x = 25;
 int y = 25;
 
 Display *dpy;
-Window win;
+Window win = None;
+static volatile sig_atomic_t running = 1;
+
+static void handle_signal(int signum) {
+  (void)signum;
+  running = 0;
+}
 Visual *vis;
 int depth;
 Colormap cm;
@@ -57,6 +66,10 @@ void parseargs(int argc, char **argv) {
 
 void init() {
   dpy = XOpenDisplay(NULL);
+  if (dpy == NULL) {
+    fprintf(stderr, "Error: Cannot open X display\n");
+    exit(EXIT_FAILURE);
+  }
   win = XCreateSimpleWindow(dpy, DefaultRootWindow(dpy), x, y, width, height, 0, 0, 0);
 
   vis = DefaultVisual(dpy, DefaultScreen(dpy));
@@ -67,9 +80,12 @@ void init() {
   XSetWindowBackgroundPixmap(dpy, win, None);
 
   XClassHint *classhint = XAllocClassHint();
-  classhint->res_class = "macaron";
-  classhint->res_name = "macaron";
-  XSetClassHint(dpy, win, classhint);
+  if (classhint != NULL) {
+    classhint->res_class = "macaron";
+    classhint->res_name = "macaron";
+    XSetClassHint(dpy, win, classhint);
+    XFree(classhint);
+  }
 
   XSetWindowAttributes attrs;
   attrs.override_redirect = True;
@@ -84,36 +100,62 @@ void init() {
   imlib_context_set_drawable(win);
 }
 
-void cleanup() {
-  imlib_free_image();
-  XFreeColormap(dpy, cm);
-  XDestroyWindow(dpy, win);
-  XCloseDisplay(dpy);
+void cleanup(Imlib_Image image) {
+  if (image != NULL) {
+    imlib_context_set_image(image);
+    imlib_free_image();
+  }
+  if (dpy != NULL) {
+    if (win != None) {
+      XDestroyWindow(dpy, win);
+    }
+    XCloseDisplay(dpy);
+  }
 }
 
 int main(int argc, char **argv) {
   parseargs(argc, argv);
   init();
 
+  struct sigaction sa = {0};
+  sa.sa_handler = handle_signal;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+
   // load image
   Imlib_Image image;
   image = imlib_load_image(argv[optind]);
   if (image == NULL) {
-    printf("failed to load image\n");
-    exit(1);
+    fprintf(stderr, "Error: Failed to load image\n");
+    cleanup(NULL);
+    return EXIT_FAILURE;
   }
   imlib_context_set_image(image);
 
   // draw image
-  XEvent ev;
-  while (1) {
-    XNextEvent(dpy, &ev);
-    if (ev.type == Expose) {
-      imlib_render_image_on_drawable_at_size(0, 0, width, height);
-      XFlush(dpy);
+  while (running) {
+    while (running && XPending(dpy) > 0) {
+      XEvent ev;
+      XNextEvent(dpy, &ev);
+      if (ev.type == Expose) {
+        imlib_render_image_on_drawable_at_size(0, 0, width, height);
+        XFlush(dpy);
+      }
+    }
+    if (!running) break;
+
+    struct pollfd pfd = { .fd = ConnectionNumber(dpy), .events = POLLIN };
+    int result = poll(&pfd, 1, -1);
+    if (result < 0 && errno != EINTR) {
+      perror("poll");
+      break;
+    }
+    if (result > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+      break;
     }
   }
 
-  cleanup();
+  cleanup(image);
   return 0;
 }
